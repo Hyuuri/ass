@@ -7,14 +7,12 @@
 //NONEが無し，RED,BLUE,..が色を表す
 enum puyocolor{NONE, RED, BLUE, GREEN, YELLOW};
 
-int landed = 0;
-
 //ぷよ1つのデータを格納する構造体
 struct puyodata
 {
 	enum puyocolor color;	//色
 	bool handling;	//操作中か否か
-
+	bool handling_special;
 
 	//構造体のコンストラクタ
 	//この構造体のインスタンス定義時に一度だけ実行される関数
@@ -23,12 +21,15 @@ struct puyodata
 	{
 		color = NONE;
 		handling = false;
+		handling_special = false;
 	}
 };
 
+
+
 class Field {
 private:
-    struct puyodata *field_array;
+    struct puyodata* field_array;
     unsigned int field_line;
     unsigned int field_column;
     void Release();
@@ -36,30 +37,219 @@ public:
     void ChangeSize(unsigned int line, unsigned int column);
     struct puyodata GetValue(unsigned int y, unsigned int x);
     void SetValue(unsigned int y, unsigned int x, struct puyodata data);
+    unsigned int GetLine();
+    unsigned int GetColumn();
+    Field();
+    ~Field();
+};
+
+Field::Field() {
+    struct puyodata *field_array = NULL;
+    unsigned int field_line = 0;
+    unsigned int field_column = 0;
+    ChangeSize(LINES/2,COLS/2);
+};
+Field::~Field() {
+    Release();
+};
+
+
+class FieldControl :
+    public Field{
+public:
+    bool Move;
+    bool FallPuyo();
     void GeneratePuyo();
-    int LandingPuyo();
+    void LandingPuyo();
     void ControlDown();
     void ControlLeft();
     void ControlRight();
-    Field() {ChangeSize(LINES/2, COLS/2);}
-    ~Field(){Release();}
-    unsigned int GetLine();
-    unsigned int GetColumn();
+    int  VanishPuyo();
+    int  VanishPuyo(unsigned int y, unsigned int x);
+    int LineMove(int x);
+    FieldControl();
 };
 
+FieldControl::FieldControl() {
+    GeneratePuyo();
+    Move = true;
+};
+
+int FieldControl::LineMove(int x){
+	for (int y = 0; y <GetLine();y++)
+		if (GetValue(y,x).handling == false){
+			if (GetValue(y,x).color != NONE){
+				struct puyodata temp;
+				temp.color = GetValue(y,x).color;
+				temp.handling = true;
+				temp.handling_special = true;
+				SetValue(y,x,temp);
+			}	
+		}
+	return 0;
+}
+bool FieldControl::FallPuyo(){
+	for (int y = 0; y < GetLine(); y++)
+                {
+                        for (int x = 0; x < GetColumn(); x++)
+                        {
+                                if (GetValue(y,x).handling == true)
+					return false;
+                        }
+                }
+	return true;
+}
+
+int FieldControl::VanishPuyo()
+	{
+		int vanishednumber = 0;
+		for (int y = 0; y < GetLine(); y++)
+		{
+			for (int x = 0; x < GetColumn(); x++)
+			{
+				vanishednumber += VanishPuyo(y, x);
+			}
+		}
+
+		return vanishednumber;
+	}
+
+	//ぷよ消滅処理を座標(x,y)で行う
+	//消滅したぷよの数を返す
+int FieldControl::VanishPuyo(unsigned int y, unsigned int x)
+	{
+		//判定個所にぷよがなければ処理終了
+		if (GetValue(y, x).color == NONE)
+		{
+			return 0;
+		}
+
+
+		//判定状態を表す列挙型
+		//NOCHECK判定未実施，CHECKINGが判定対象，CHECKEDが判定済み
+		enum checkstate{ NOCHECK, CHECKING, CHECKED };
+
+		//判定結果格納用の配列
+		enum checkstate *field_array_check;
+		field_array_check = new enum checkstate[GetLine()*GetColumn()];
+
+		//配列初期化
+		for (int i = 0; i < GetLine()*GetColumn(); i++)
+		{
+			field_array_check[i] = NOCHECK;
+		}
+
+		//座標(x,y)を判定対象にする
+		field_array_check[y*GetColumn() + x] = CHECKING;
+
+		//判定対象が1つもなくなるまで，判定対象の上下左右に同じ色のぷよがあるか確認し，あれば新たな判定対象にする
+		bool checkagain = true;
+		while (checkagain)
+		{
+			checkagain = false;
+
+			for (int y = 0; y < GetLine(); y++)
+			{
+				for (int x = 0; x < GetColumn(); x++)
+				{
+					//(x,y)に判定対象がある場合
+					if (field_array_check[y*GetColumn() + x] == CHECKING)
+					{
+						//(x+1,y)の判定
+						if (x < GetColumn() - 1)
+						{
+							//(x+1,y)と(x,y)のぷよの色が同じで，(x+1,y)のぷよが判定未実施か確認
+							if (GetValue(y, x + 1).color == GetValue(y, x).color && field_array_check[y*GetColumn() + (x + 1)] == NOCHECK)
+							{
+								//(x+1,y)を判定対象にする
+								field_array_check[y*GetColumn() + (x + 1)] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						//(x-1,y)の判定
+						if (x > 0)
+						{
+							if (GetValue(y, x - 1).color == GetValue(y, x).color && field_array_check[y*GetColumn() + (x - 1)] == NOCHECK)
+							{
+								field_array_check[y*GetColumn() + (x - 1)] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						//(x,y+1)の判定
+						if (y < GetLine() - 1)
+						{
+							if (GetValue(y + 1, x).color == GetValue(y, x).color && field_array_check[(y + 1)*GetColumn() + x] == NOCHECK)
+							{
+								field_array_check[(y + 1)*GetColumn() + x] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						//(x,y-1)の判定
+						if (y > 0)
+						{
+							if (GetValue(y - 1, x).color == GetValue(y, x).color && field_array_check[(y - 1)*GetColumn() + x] == NOCHECK)
+							{
+								field_array_check[(y - 1)*GetColumn() + x] = CHECKING;
+								checkagain = true;
+							}
+						}
+
+						//(x,y)を判定済みにする
+						field_array_check[y*GetColumn() + x] = CHECKED;
+					}
+				}
+			}
+		}
+
+		//判定済みの数をカウント
+		int puyocount = 0;
+		for (int i = 0; i < GetLine()*GetColumn(); i++)
+		{
+			if (field_array_check[i] == CHECKED)
+			{
+				puyocount++;
+			}
+		}
+
+		//4個以上あれば，判定済み座標のぷよを消す
+		int vanishednumber = 0;
+		if (4 <= puyocount)
+		{
+			for (int y = 0; y < GetLine(); y++)
+			{
+				for (int x = 0; x < GetColumn(); x++)
+				{
+					if (field_array_check[y*GetColumn() + x] == CHECKED)
+					{
+						struct puyodata data = GetValue(y, x);
+						data.color = NONE;
+						data.handling = false;
+						SetValue(y, x, data);
+						LineMove(x);
+
+						vanishednumber++;
+					}
+				}
+			}
+		}
+
+		//メモリ解放
+		delete[] field_array_check;
+
+		return vanishednumber;
+	}
+
+
 unsigned int Field::GetLine(){
-    return field_line;
+   return field_line;
 }
 
 unsigned int Field::GetColumn(){
     return field_column;
 }
-
-//フィールドを表す配列
-struct puyodata *field_array = NULL;
-//フィールドの行数，列数
-unsigned int field_line = 0;
-unsigned int field_column = 0;
 
 //field_arrayのメモリ開放
 void Field::Release()
@@ -77,7 +267,7 @@ void Field::Release()
 //フィールドサイズ変更
 void Field::ChangeSize(unsigned int line, unsigned int column)
 {
-	Field_Release();
+	Release();
 
 	//新しいサイズでメモリ確保
 	field_array = new struct puyodata[line*column];
@@ -94,7 +284,7 @@ struct puyodata Field::GetValue(unsigned int y, unsigned int x)
 		//引数の値が正しくない
 		struct puyodata temp;
 		return temp;
-	}
+	}  
 
 	return field_array[y*field_column + x];
 }
@@ -113,18 +303,18 @@ void Field::SetValue(unsigned int y, unsigned int x, struct puyodata data)
 
 
 //フィールドに新しいぷよ生成
-void Field::GeneratePuyo()
+void FieldControl::GeneratePuyo()
 {
-
-    landed = 0;
+//操作可能フラグの初期化
+    Move = true;
 
 struct puyodata newpuyo[4];
 
-	newpuyo[0].color = RED;
-	newpuyo[0].handling = true;
+    newpuyo[0].color = RED;
+    newpuyo[0].handling = true;
 
-	newpuyo[1].color = BLUE;
-	newpuyo[1].handling = true;
+    newpuyo[1].color = BLUE;
+    newpuyo[1].handling = true;
 
     newpuyo[2].color = YELLOW;
     newpuyo[2].handling = true;
@@ -132,76 +322,111 @@ struct puyodata newpuyo[4];
     newpuyo[3].color = GREEN;
     newpuyo[3].handling = true;
 
-    std::random_device rd;
+    //std::random_device rd;
 
-	Field_SetValue(0, 5, newpuyo[rd()%4]);
-	Field_SetValue(0, 6, newpuyo[rd()%4]);
+    //SetValue(0, 5, newpuyo[rd()%4]);
+    //SetValue(0, 6, newpuyo[rd()%4]);
+    SetValue(0, 5, newpuyo[3]);
+    SetValue(0, 6, newpuyo[2]);
 }
 
 //操作中ぷよの着地判定
 //着地判定があるとtrueを返す
-int Field::LandingPuyo()
+void FieldControl::LandingPuyo()
 {
-
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine() ; y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array[y*field_column + x].handling == true)
+			if (GetValue(y,x).handling == true)
 			{
-				if (y == field_line - 1 || field_array[(y + 1)*field_column + x].color != NONE)
+				if (GetValue(y,x).handling_special == true && GetValue(y+1,x).handling_special == true)
 				{
-					//操作中フラグをfalseにして着地状態にする
-					field_array[y*field_column + x].handling = false;
-					//左右のぷよも着地状態にする
-                    landed += 1;
-
+					struct puyodata temp;
+					temp.color = GetValue(y,x).color;
+					temp.handling = true;
+					temp.handling_special = true;
+					SetValue(y,x,temp);
+					Move = false;
+				}
+				if (GetValue(y,x).handling_special == true && y == GetLine() -1)
+				{
+					struct puyodata temp;
+					temp.color = GetValue(y,x).color;
+					temp.handling = false;
+					temp.handling_special = false;
+					SetValue(y,x,temp);
+					Move = false;
+				}
+				if (GetValue(y+1,x).handling_special == false)
+				{
+					if (GetValue(y,x).handling_special == true && GetValue(y+1,x).color != NONE)
+					{
+						struct puyodata temp;
+						temp.color = GetValue(y,x).color;
+						temp.handling = false;
+						temp.handling_special = false;
+						SetValue(y,x,temp);
+						Move = false;
+					}
+				}
+				if (GetValue(y,x).handling_special == false)
+				{
+					if (y == GetLine() - 1 || GetValue(y + 1,x).color != NONE)
+					{
+							struct puyodata temp;
+                                        		temp.color = GetValue(y,x).color;
+                                        		temp.handling = false;
+                                        		SetValue(y,x,temp);
+							Move = false;
+					}
 				}
 			}
 		}
 	}
-
-	return landed;
 }
 
 //下移動
-void Field::ControlDown()
+void FieldControl::ControlDown()
 {
 	//一時的格納場所メモリ確保
 	struct puyodata *field_array_temp;
-	field_array_temp = new struct puyodata[field_line*field_column];
+	field_array_temp = new struct puyodata[GetLine()*GetColumn()];
 
-	//1つ下の位置にfield_arrayからfield_array_tempへとコピー
-	for (int y = 0; y < field_line; y++)
+            //1つ下の位置にfield_arrayからfield_array_tempへとコピー
+	for (int y = GetLine()-1; -1 < y ; y--)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array[y*field_column + x].handling == true)
+			if (GetValue(y,x).handling == true)
 			{
-				if (y < field_line-1)
+				if (y < GetLine()-1)
 				{
-					field_array_temp[(y + 1)*field_column + x] = field_array[y*field_column + x];
+
+					field_array_temp[(y + 1)*GetColumn() + x] = GetValue(y,x);
 				}
 				else
 				{
-					field_array_temp[y*field_column + x] = field_array[y*field_column + x];
+					field_array_temp[y*GetColumn() + x] = GetValue(y,x);
 				}
 
 				//コピー後にfield_arrayのデータは消す
-				field_array[y*field_column + x].color = NONE;
-				field_array[y*field_column + x].handling = false;
+                struct puyodata temp;
+                temp.color = NONE;
+                temp.handling = false;
+                SetValue(y,x,temp);
 			}
 		}
 	}
 
 	//field_array_tempからfield_arrayへコピー
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine(); y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array_temp[y*field_column + x].handling == true)
+			if (field_array_temp[y*GetColumn() + x].handling == true)
 			{
-				field_array[y*field_column + x] = field_array_temp[y*field_column + x];
+				SetValue(y,x,field_array_temp[y*GetColumn() + x]);
 			}
 		}
 	}
@@ -211,43 +436,45 @@ void Field::ControlDown()
 }
 
 //左移動
-void Field::ControlLeft()
+void FieldControl::ControlLeft()
 {
 	//一時的格納場所メモリ確保
 	struct puyodata *field_array_temp;
-	field_array_temp = new struct puyodata[field_line*field_column];
+	field_array_temp = new struct puyodata[GetLine()*GetColumn()];
 
 	//1つ左の位置にfield_arrayからfield_array_tempへとコピー
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine(); y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array[y*field_column + x].handling == true)
+			if (GetValue(y,x).handling == true)
 			{
 				if (0 < x)
 				{
-					field_array_temp[y*field_column + (x - 1)] = field_array[y*field_column + x];
+					field_array_temp[y*GetColumn() + (x - 1)] = GetValue(y,x);
 				}
 				else
 				{
-					field_array_temp[y*field_column + x] = field_array[y*field_column + x];
+					field_array_temp[y*GetColumn() + x] = GetValue(y,x);
 				}
 
 				//コピー後にfield_arrayのデータは消す
-				field_array[y*field_column + x].color = NONE;
-				field_array[y*field_column + x].handling = false;
+                struct puyodata temp;
+                temp.color= NONE;
+                temp.handling = false;
+                SetValue(y,x,temp);
 			}
 		}
 	}
 
 	//field_array_tempからfield_arrayへコピー
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine(); y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array_temp[y*field_column + x].handling == true)
+			if (field_array_temp[y*GetColumn() + x].handling == true)
 			{
-				field_array[y*field_column + x] = field_array_temp[y*field_column + x];
+				SetValue(y,x,field_array_temp[y*GetColumn() + x]);
 			}
 		}
 	}
@@ -257,43 +484,46 @@ void Field::ControlLeft()
 }
 
 //右移動
-void Field::ControlRight()
+void FieldControl::ControlRight()
 {
 	//一時的格納場所メモリ確保
 	struct puyodata *field_array_temp;
-	field_array_temp = new struct puyodata[field_line*field_column];
+	field_array_temp = new struct puyodata[GetLine()*GetColumn()];
 
 	//1つ右の位置にfield_arrayからfield_array_tempへとコピー
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine(); y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array[y*field_column + x].handling == true)
+			if (GetValue(y,x).handling == true)
 			{
-				if (x <= field_column)
+				if (x <= GetColumn())
 				{
-					field_array_temp[y*field_column + (x + 1)] = field_array[y*field_column + x];
+					field_array_temp[y*GetColumn() + (x + 1)] = GetValue(y,x);
 				}
 				else
 				{
-					field_array_temp[y*field_column + x] = field_array[y*field_column + x];
+					field_array_temp[y*GetColumn() + x] = GetValue(y,x);
 				}
 
 				//コピー後にfield_arrayのデータは消す
-				field_array[y*field_column + x].color = NONE;
-				field_array[y*field_column + x].handling = false;
+                struct puyodata temp;
+                temp.color= NONE;
+                temp.handling = false;
+                SetValue(y,x,temp);
+
 			}
 		}
 	}
 
 	//field_array_tempからfield_arrayへコピー
-	for (int y = 0; y < field_line; y++)
+	for (int y = 0; y < GetLine(); y++)
 	{
-		for (int x = 0; x < field_column; x++)
+		for (int x = 0; x < GetColumn(); x++)
 		{
-			if (field_array_temp[y*field_column + x].handling == true)
+			if (field_array_temp[y*GetColumn() + x].handling == true)
 			{
-				field_array[y*field_column + x] = field_array_temp[y*field_column + x];
+				SetValue(y,x,field_array_temp[y*GetColumn() + x]);
 			}
 		}
 	}
@@ -304,14 +534,14 @@ void Field::ControlRight()
 
 
 //表示
-void Display(Field& instans)
+void Display(FieldControl& instans)
 {
 	//フィールド表示
 	for (int y = 0; y < instans.GetLine(); y++)
 	{
 		for (int x = 0; x < instans.GetColumn(); x++)
 		{
-			switch (isntans.GetValue(y, x).color)
+			switch (instans.GetValue(y, x).color)
 			{
 			case NONE:
 				mvaddch(y, x, ' ');
@@ -359,20 +589,24 @@ void Display(Field& instans)
 
 	}
 
+
 	char msg[256];
-	sprintf(msg, "Field: %d x %d, Puyo number: %03d", field_line, field_column, count);
+	sprintf(msg, "Field: %d x %d, Puyo number: %03d", instans.GetLine(), instans.GetColumn(),count);
 	mvaddstr(2, COLS - 35, msg);
+
 }
 
 
 //ここから実行される
 int main(int argc, char **argv){
-
-    Field field;
+    FieldControl fieldcontrol;
+    
+    
 	//画面の初期化
 	initscr();
 	//カラー属性を扱うための初期化
 	start_color();
+    
 
 	//キーを押しても画面に表示しない
 	noecho();
@@ -387,13 +621,13 @@ int main(int argc, char **argv){
 	timeout(0);
 
 
-	//初期化処理
-	Field_ChangeSize(LINES/2, COLS/2);	//フィールドは画面サイズの縦横1/2にする
-	Field_GeneratePuyo();	//最初のぷよ生成
+	//初期化処
+    fieldcontrol.ChangeSize(LINES/2,COLS/2);
+    fieldcontrol.GeneratePuyo();
+    
 
 	int delay = 0;
-	int waitCount = 2000;
-
+	int waitCount = 3000;
 
 	//メイン処理ループ
 	while (1)
@@ -412,12 +646,14 @@ int main(int argc, char **argv){
 		switch (ch)
 		{
 		case KEY_LEFT:
-           if (field.LandingPuyo() == 2)
-			    field.ControlLeft();
-			break;
+           if (fieldcontrol.Move == true) {
+               fieldcontrol.ControlLeft();
+           }
+                break;
 		case KEY_RIGHT:
-            if (field.LandingPuyo() == 2)
-			    field.ControlRight();
+            if (fieldcontrol.Move == true) {
+                fieldcontrol.ControlRight();
+            }
 			break;
 		case 'Z':
 			//ぷよ回転処理など
@@ -430,19 +666,30 @@ int main(int argc, char **argv){
 		//処理速度調整のためのif文
 		if (delay%waitCount == 0){
 			//ぷよ下に移動
-			field.ControlDown();
-
+			fieldcontrol.ControlDown();
+			fieldcontrol.LandingPuyo();
 			//ぷよ着地判定
-			if (field.LandingPuyo() == 2){
+			if (fieldcontrol.FallPuyo() == true){
+				if (fieldcontrol.VanishPuyo() != 0)
+                        		fieldcontrol.Move = false;
+			}
+			if (fieldcontrol.FallPuyo() == true){
 				//着地したら新しいぷよ生成
-				field.GeneratePuyo();
+				fieldcontrol.GeneratePuyo();
 			}
 		}
+		
+		/*
+		if (fieldcontrol.FallPuyo() == true){
+			if (fieldcontrol.VanishPuyo() != 0)
+				fieldcontrol.Move = false;
+		}
+		*/
 		delay++;
 
 
 		//表示
-		Display(field);
+		Display(fieldcontrol);
 	}
 
 
